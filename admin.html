@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GreenBooks — Admin</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0b2e13;color:#eafff0;padding:24px;max-width:720px;margin:auto}
+  h1{color:#7bdc8b}
+  h2{color:#7bdc8b;margin-top:28px;font-size:1.1rem;border-bottom:1px solid #2f7d45;padding-bottom:6px}
+  label{display:block;margin-top:14px;font-weight:600}
+  input,select,button{width:100%;padding:10px;margin-top:6px;border-radius:10px;border:1px solid #2f7d45;background:#0f4d1f;color:#eafff0;font-size:1rem;box-sizing:border-box}
+  button{background:linear-gradient(135deg,#3fce5e,#1f8a3b);color:#04230c;font-weight:700;cursor:pointer;margin-top:18px;border:none}
+  button:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.65;cursor:wait}
+  button.ghost{background:transparent;color:#b6e6c4;border:1px solid #2f7d45}
+  #log{margin-top:20px;padding:12px;background:#00000055;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;font-family:monospace;font-size:.85rem;min-height:60px}
+  .ok{color:#7bdc8b}
+  .err{color:#ff7b7b}
+  #userList{margin-top:12px;font-size:.85rem}
+  #userList .u{padding:8px;border:1px solid #2f7d45;border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #userList .u button{width:auto;margin:0;padding:6px 10px;font-size:.8rem}
+  .plan{color:#7bdc8b;font-weight:700}
+  .noplan{color:#ff7b7b;font-weight:700}
+</style>
+</head>
+<body>
+  <h1>🌿 GreenBooks — Admin</h1>
+
+  <!-- ============ LOGIN ============ -->
+  <section id="loginSection">
+    <h2>Admin Login</h2>
+    <label>Email</label>
+    <input id="loginEmail" type="email" placeholder="admin@example.com" autocomplete="username" />
+    <label>Password</label>
+    <input id="loginPass" type="password" placeholder="Admin password" autocomplete="current-password" />
+    <button id="loginBtn" type="button">Log In</button>
+    <div id="log" role="status" aria-live="polite">Ready…</div>
+  </section>
+
+  <!-- ============ UPLOAD ============ -->
+  <section id="appSection" hidden>
+    <h2>Upload Book</h2>
+    <label>Book Title</label>
+    <input id="title" placeholder="Mathematics Form 1" />
+
+    <label>Form</label>
+    <select id="form">
+      <option value="1">Form 1</option>
+      <option value="2">Form 2</option>
+      <option value="3">Form 3</option>
+      <option value="4">Form 4</option>
+    </select>
+
+    <label>Subject</label>
+    <select id="subject">
+      <option>English</option><option>Chichewa</option><option>Mathematics</option>
+      <option>Biology</option><option>Agriculture</option><option>Chemistry</option>
+      <option>Physics</option><option>Geography</option><option>History</option>
+      <option>Social Studies</option>
+    </select>
+
+    <label>PDF File (max 50 MB)</label>
+    <input id="pdf" type="file" accept=".pdf,application/pdf" />
+
+    <label>Cover Image (optional, max 5 MB)</label>
+    <input id="cover" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+
+    <button id="uploadBtn" type="button">Upload Book</button>
+
+    <h2>Users &amp; Plan Activation</h2>
+    <button id="refreshUsers" type="button" class="ghost">Refresh Users</button>
+    <div id="userList">Click "Refresh Users" to load.</div>
+
+    <button id="logoutBtn" type="button" class="ghost">Log Out</button>
+    <div id="log2" role="status" aria-live="polite" style="margin-top:12px;padding:12px;background:#00000055;border-radius:10px;white-space:pre-wrap;font-family:monospace;font-size:.85rem;"></div>
+  </section>
+
+<script>
+/* ============================================================
+   CHANGE THIS IF YOUR RENDER URL IS DIFFERENT.
+   ============================================================ */
+const API = "https://kb-yaza-server-js.onrender.com/api";
+
+let token = localStorage.getItem("gb_admin_token") || "";
+
+const loginSection = document.getElementById("loginSection");
+const appSection = document.getElementById("appSection");
+const log = document.getElementById("log");
+const log2 = document.getElementById("log2");
+
+function showLog(msg, kind) {
+  const el = log.offsetParent ? log : log2;
+  const span = document.createElement("span");
+  span.className = kind || "";
+  span.textContent = msg;
+  el.replaceChildren(span);
+}
+
+async function readJson(response) {
+  const text = await response.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch { throw new Error(`Non-JSON response (HTTP ${response.status}). Check Render URL.`); }
+  if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+  return data;
+}
+
+/* ---------- LOGIN ---------- */
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPass").value;
+  if (!email || !password) { showLog("❌ Email and password required.", "err"); return; }
+
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Logging in…";
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await readJson(res);
+    if (!data.user || data.user.role !== "admin") throw new Error("This account is not an admin.");
+    if (!data.token) throw new Error("No token returned.");
+    token = data.token;
+    localStorage.setItem("gb_admin_token", token);
+    enterApp();
+  } catch (err) {
+    showLog(`❌ ${err.message}`, "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "Log In";
+  }
+});
+
+function enterApp() {
+  loginSection.hidden = true;
+  appSection.hidden = false;
+  loadUsers();
+}
+
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  token = "";
+  localStorage.removeItem("gb_admin_token");
+  appSection.hidden = true;
+  loginSection.hidden = false;
+  showLog("Logged out.", "ok");
+});
+
+/* ---------- UPLOAD ---------- */
+document.getElementById("uploadBtn").addEventListener("click", async () => {
+  const title = document.getElementById("title").value.trim();
+  const form = document.getElementById("form").value;
+  const subject = document.getElementById("subject").value;
+  const pdfFile = document.getElementById("pdf").files[0];
+  const coverFile = document.getElementById("cover").files[0];
+
+  if (!title || !pdfFile) { showLog("❌ Title and PDF are required.", "err"); return; }
+  if (pdfFile.size > 50 * 1024 * 1024) { showLog("❌ PDF larger than 50 MB.", "err"); return; }
+  if (pdfFile.type && pdfFile.type !== "application/pdf") { showLog("❌ Please select a PDF file.", "err"); return; }
+  if (coverFile && coverFile.size > 5 * 1024 * 1024) { showLog("❌ Cover larger than 5 MB.", "err"); return; }
+
+  const btn = document.getElementById("uploadBtn");
+  btn.disabled = true; btn.textContent = "Uploading…";
+  showLog("Uploading book PDF…", "ok");
+
+  try {
+    const fd = new FormData();
+    fd.append("pdf", pdfFile);
+    fd.append("title", title);
+    fd.append("form", form);
+    fd.append("subject", subject);
+
+    const bookRes = await fetch(`${API}/admin/books`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd
+    });
+    const book = await readJson(bookRes);
+    let result = `✅ Book uploaded: ${book.title}\nBook ID: ${book._id}`;
+
+    if (coverFile) {
+      showLog(result + "\nUploading cover…", "ok");
+      const cfd = new FormData();
+      cfd.append("cover", coverFile);
+      const cRes = await fetch(`${API}/admin/books/${encodeURIComponent(book._id)}/cover`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+        body: cfd
+      });
+      await readJson(cRes);
+      result += "\n🖼️ Cover uploaded.";
+    }
+
+    result += "\n\n✅ Done. Refresh the student site to see the new book.";
+    showLog(result, "ok");
+
+    document.getElementById("title").value = "";
+    document.getElementById("pdf").value = "";
+    document.getElementById("cover").value = "";
+  } catch (err) {
+    showLog(`❌ ${err.message}\n\nCheck Render URL, admin token, CORS, and Render logs.`, "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "Upload Book";
+  }
+});
+
+/* ---------- USERS ---------- */
+async function loadUsers() {
+  const list = document.getElementById("userList");
+  list.textContent = "Loading…";
+  try {
+    const res = await fetch(`${API}/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const users = await readJson(res);
+    if (!Array.isArray(users)) throw new Error("Invalid user list.");
+
+    list.replaceChildren();
+    if (!users.length) { list.textContent = "No students yet."; return; }
+
+    users.forEach(u => {
+      const row = document.createElement("div");
+      row.className = "u";
+      const info = document.createElement("div");
+      const active = u.hasPlan && u.planExpiry && new Date(u.planExpiry) > new Date();
+      info.innerHTML = `<strong>${u.name || "—"}</strong> (${u.email})<br>
+        <span class="${active ? "plan" : "noplan"}">${active ? "PLAN ACTIVE until " + new Date(u.planExpiry).toLocaleDateString() : "NO PLAN"}</span>`;
+      const btn = document.createElement("button");
+      btn.textContent = "Activate 30 days";
+      btn.addEventListener("click", () => activatePlan(u._id));
+      row.append(info, btn);
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.textContent = `❌ ${err.message}`;
+  }
+}
+
+async function activatePlan(userId) {
+  try {
+    const res = await fetch(`${API}/admin/users/${userId}/activate-plan`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readJson(res);
+    showLog(`✅ Plan activated for ${data.user.email} until ${new Date(data.user.planExpiry).toLocaleDateString()}`, "ok");
+    loadUsers();
+  } catch (err) {
+    showLog(`❌ ${err.message}`, "err");
+  }
+}
+
+document.getElementById("refreshUsers").addEventListener("click", loadUsers);
+
+/* Auto-enter if token exists */
+if (token) enterApp();
+</script>
+</body>
+</html>
